@@ -1,13 +1,7 @@
 name: Publish Snapshot
 
 on:
-  workflow_run:
-    workflows: [Build Snapshot]
-    types:
-      - completed
-    branches:
-      - main
-
+  workflow_dispatch:
 permissions:
   contents: read # to fetch code (actions/checkout)
 
@@ -18,11 +12,8 @@ jobs:
   check-version:
     # only run in the official pmd repo, where we have access to the secrets and not on forks
     # and only run for _successful_ push workflow runs on branch "main".
-    if: ${{ github.repository == 'pmd/pmd'
-            && contains(fromJSON('["push", "workflow_dispatch", "schedule"]'), github.event.workflow_run.event)
-            && github.event.workflow_run.head_branch == 'main'
-            && github.event.workflow_run.conclusion == 'success' }}
-    runs-on: ubuntu-latest
+    if: always()
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     defaults:
       run:
@@ -32,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 #v6.0.3
         with:
-         ref: main
+          ref: main
       - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 #v5.2.0
         with:
           distribution: 'temurin'
@@ -64,13 +55,20 @@ jobs:
           echo "Called by [${WORKFLOW_RUN_DISPLAY_TITLE} (${WORKFLOW_RUN_NAME} #${WORKFLOW_RUN_NUMBER})](${WORKFLOW_RUN_HTML_URL})" >> "${GITHUB_STEP_SUMMARY}"
           echo "" >> "${GITHUB_STEP_SUMMARY}"
 
+    strategy:
+      matrix:
+        os: &id001
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+      fail-fast: false
   deploy-to-maven-central:
     needs: check-version
     # use environment maven-central, where secrets are configured for MAVEN_CENTRAL_PORTAL_*
     environment:
       name: maven-central
       url: https://central.sonatype.com/service/rest/repository/browse/maven-snapshots/net/sourceforge/pmd/
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 180
     defaults:
       run:
@@ -116,6 +114,10 @@ jobs:
             -Ddokka.skip=false \
             -Dmaven.source.skip=false
 
+    strategy:
+      matrix:
+        os: *id001
+      fail-fast: false
   deploy-to-sourceforge-files:
     needs: check-version
     # use environment sourceforge, where secrets/vars are configured for PMD_WEB_SOURCEFORGE_NET_DEPLOY_KEY
@@ -123,7 +125,7 @@ jobs:
     environment:
       name: sourceforge
       url: ${{ steps.upload.outputs.url_output }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     defaults:
       run:
@@ -214,11 +216,15 @@ jobs:
           echo "url_output=${targetUrl}" >> "$GITHUB_OUTPUT"
 
       - name: Cleanup ssh and gpg
-        if: ${{ always() }}
+        if: always()
         run: |
           rm -rf "${HOME}/.ssh"
           rm -rf "${HOME}/.gpg"
 
+    strategy:
+      matrix:
+        os: *id001
+      fail-fast: false
   deploy-to-sourceforge-io:
     needs: check-version
     # use environment sourceforge, where secrets/vars are configured for PMD_WEB_SOURCEFORGE_NET_DEPLOY_KEY
@@ -315,7 +321,7 @@ jobs:
           PMD_CODE_DOCS_PATH: /docs.pmd-code.org/
         run: |
           filename="pmd-dist-${PMD_VERSION}-doc.zip"
-          
+
           scp "${filename}" ${PMD_CODE_SSH_USER}@pmd-code.org:${PMD_CODE_DOCS_PATH}
           # shellcheck disable=SC2029
           ssh ${PMD_CODE_SSH_USER}@pmd-code.org "cd \"${PMD_CODE_DOCS_PATH}\" && \
@@ -381,7 +387,7 @@ jobs:
           for moduleJavadocJar in */target/*-javadoc.jar */*/target/*-javadoc.jar; do
               moduleJavadocJarBasename="$(basename "$moduleJavadocJar")"
               module=${moduleJavadocJarBasename%%-${PMD_VERSION}-javadoc.jar}
-    
+
               echo "Copying module ${moduleJavadocJar}..."
               scp "$moduleJavadocJar" ${PMD_CODE_SSH_USER}@pmd-code.org:${PMD_CODE_DOCS_PATH}
               echo "Extracting remotely ${module}..."
@@ -438,10 +444,10 @@ jobs:
 
           Updated by: https://github.com/pmd/pmd/actions/runs/$GITHUB_RUN_ID
           Triggered by: ${WORKFLOW_RUN_HTML_URL}"
-          
+
           echo "Commit Message:"
           echo "$MSG"
-          
+
           git commit -q -m "$MSG"
           git push
 
@@ -450,7 +456,7 @@ jobs:
     environment:
       name: github
       url: ${{ steps.release.outputs.release_url }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     defaults:
       run:
@@ -558,7 +564,7 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             /repos/pmd/pmd/git/refs \
             -f "ref=refs/tags/${tagName}" -f "sha=${mainSha}"
-          
+
           echo "tagName=${tagName}" >> "${GITHUB_OUTPUT}"
           echo "previousTagName=${previousTagName}" >> "${GITHUB_OUTPUT}"
       - name: Create or Update GitHub Pre-Release
@@ -622,10 +628,14 @@ jobs:
           fi
           echo "release_url=https://github.com/pmd/pmd/releases/tag/pmd_releases%2F${PMD_VERSION}" >> "$GITHUB_OUTPUT"
       - name: Cleanup gpg
-        if: ${{ always() }}
+        if: always()
         run: |
           rm -rf "${HOME}/.gpg"
 
+    strategy:
+      matrix:
+        os: *id001
+      fail-fast: false
   create-regression-tester-baseline:
     needs: check-version
     runs-on: ubuntu-latest
@@ -716,7 +726,7 @@ jobs:
 
   run-sonar:
     needs: check-version
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     # use environment sonarcloud, where secrets are configured for SONAR_TOKEN
     environment:
       name: sonarcloud
@@ -751,9 +761,13 @@ jobs:
               package \
               sonar:sonar -Psonar,fastSkip
 
+    strategy:
+      matrix:
+        os: *id001
+      fail-fast: false
   run-coveralls:
     needs: check-version
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     # use environment sonarcloud, where secrets are configured for COVERALLS_REPO_TOKEN
     environment:
       name: coveralls
@@ -783,7 +797,7 @@ jobs:
               -Dmaven.repo.local=.m2/repository \
               package \
               jacoco:report -Pcoveralls,fastSkip
-          
+
           # workaround, maybe https://github.com/jacoco/jacoco/issues/654
           # we use $ as a regex separator, not a shell variable, so no expansion
           # shellcheck disable=SC2016
@@ -799,3 +813,7 @@ jobs:
               -Dmaven.repo.local=.m2/repository \
               generate-sources test-compile \
               coveralls:report -DrepoToken="${COVERALLS_REPO_TOKEN}" -Pcoveralls,fastSkip
+    strategy:
+      matrix:
+        os: *id001
+      fail-fast: false
