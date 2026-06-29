@@ -1,0 +1,26 @@
+@@ -27,15 +27,22 @@
+           path: .m2/repository
+           enableCrossOsArchive: true
+       - name: Fast Build with Maven
++        env:
++          RUNNER_OS: ${{ runner.os }}
+         run: |
++          if [ "${RUNNER_OS}" = "Windows" ]; then
++            STAGING_REPO_PATH="$(pwd -W)/target/staging"
++          else
++            STAGING_REPO_PATH="$(pwd)/target/staging"
++          fi
+           ./mvnw --show-version --errors --batch-mode \
+             -Dmaven.repo.local=.m2/repository \
+             verify -PfastSkip -DskipTests -Dcyclonedx.skip=false \
+-            deploy:deploy -DaltDeploymentRepository="dogfood::file://$(pwd)/target/staging"
++            deploy:deploy -DaltDeploymentRepository="dogfood::file:///${STAGING_REPO_PATH}"
+       - name: Cleanup local repository
+         run: |
+           # Cleanup local repository to not poison the shared cache with our SNAPSHOTS of the current build.
+           # Some information is stored in maven-metadata-*.xml files which tells maven which
+           # version exactly is available in the staging repo. But if we rerun the build using the
+           # older cache, it points to the old staging versions, which are not available anymore.
+-          find .m2/repository/net/sourceforge/pmd -type d -name "*-SNAPSHOT" -and -not -path "*/pmd-designer/*" -print0 | xargs -0 rm -vrf
++          find .m2/repository/net/sourceforge/pmd -type d -name "*-SNAPSHOT" -not -path "*/pmd-designer/*" -exec rm -rf {} + 2>/dev/null || true
+\ No newline at end of line
